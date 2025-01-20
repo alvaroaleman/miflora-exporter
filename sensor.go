@@ -13,59 +13,63 @@ import (
 
 func Readings(c Config) (readings []Reading, err error) {
 	for alias, device := range c.Devices {
-		log.Printf("Querying %s %s", alias, device)
-		time.Sleep(1 * time.Second) // pass the queries a little, BT stack seems brittle
+		var hadSuccess bool
+		for attempt := 0; attempt < 3 && !hadSuccess; attempt++ {
+			log.Printf("Querying %s %s, attempt %d", alias, device, attempt)
+			time.Sleep(1 * time.Second) // pass the queries a little, BT stack seems brittle
 
-		filter := func(a ble.Advertisement) bool {
-			return strings.EqualFold(a.Addr().String(), device)
+			filter := func(a ble.Advertisement) bool {
+				return strings.EqualFold(a.Addr().String(), device)
+			}
+
+			d := Device{Device: device, Identifier: alias}
+
+			ctx := ble.WithSigHandler(context.WithTimeout(context.Background(), 10*time.Second))
+			cln, err := ble.Connect(ctx, filter)
+			if err != nil {
+				log.Printf("Failed to scan %s: %s", d.Identifier, err)
+				continue
+			}
+
+			log.Printf("Connected to %s", d.Identifier)
+
+			p, err := cln.DiscoverProfile(true)
+			if err != nil {
+				cln.CancelConnection()
+				log.Printf("Failed to discover profile: %s", err)
+				continue
+			}
+
+			err = d.enableSensorReadings(cln, p)
+			if err != nil {
+				cln.CancelConnection()
+				log.Printf("Failed to enable sensor read: %s", err)
+				continue
+			}
+
+			sys, err := systemReadings(cln, p)
+			if err != nil {
+				cln.CancelConnection()
+				log.Printf("Failed to read system: %s", err)
+				continue
+			}
+
+			sensor, err := sensorReadings(cln, p)
+			if err != nil {
+				cln.CancelConnection()
+				log.Printf("Failed to read sensors: %s", err)
+				continue
+			}
+
+			r := Reading{Alias: alias, System: sys, Sensor: sensor}
+			readings = append(readings, r)
+			if err = cln.CancelConnection(); err != nil {
+				log.Printf("Failed to cancel connection: %s", err)
+			}
+			log.Printf("Disconnected from %s", d.Identifier)
+
+			hadSuccess = true
 		}
-
-		d := Device{Device: device, Identifier: alias}
-
-		ctx := ble.WithSigHandler(context.WithTimeout(context.Background(), 10*time.Second))
-		cln, err := ble.Connect(ctx, filter)
-		if err != nil {
-			log.Printf("Failed to scan %s: %s", d.Identifier, err)
-			continue
-		}
-
-		log.Printf("Connected to %s", d.Identifier)
-
-		p, err := cln.DiscoverProfile(true)
-		if err != nil {
-			cln.CancelConnection()
-			log.Printf("Failed to discover profile: %s", err)
-			continue
-		}
-
-		err = d.enableSensorReadings(cln, p)
-		if err != nil {
-			cln.CancelConnection()
-			log.Printf("Failed to enable sensor read: %s", err)
-			continue
-		}
-
-		sys, err := systemReadings(cln, p)
-		if err != nil {
-			cln.CancelConnection()
-			log.Printf("Failed to read system: %s", err)
-			continue
-		}
-
-		sensor, err := sensorReadings(cln, p)
-		if err != nil {
-			cln.CancelConnection()
-			log.Printf("Failed to read sensors: %s", err)
-			continue
-		}
-
-		r := Reading{Alias: alias, System: sys, Sensor: sensor}
-		readings = append(readings, r)
-		if err = cln.CancelConnection(); err != nil {
-			log.Printf("Failed to cancel connection: %s", err)
-		}
-		log.Printf("Disconnected from %s", d.Identifier)
-
 	}
 	return readings, nil
 }
