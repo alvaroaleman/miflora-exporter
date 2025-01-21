@@ -27,11 +27,11 @@ jobs:
 
       - run: |
           CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o miflora-exporter .
-          docker build -t ghcr.io/alvaroaleman/miflora_exporter:latest .
+          docker build -t ghcr.io/alvaroaleman/miflora_exporter:latest-amd64 .
 
       - run: |
           CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -o miflora-exporter .
-          docker buildx build --platform linux/arm64 -t ghcr.io/alvaroaleman/miflora_exporter:latest .
+          docker buildx build --platform linux/arm64 -t ghcr.io/alvaroaleman/miflora_exporter:latest-arm64 .
 
       - name: Log in to the Container registry
         uses: docker/login-action@65b78e6e13532edd9afa3aa52ac7964289d1a9c1
@@ -40,4 +40,10 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - run: docker push ghcr.io/alvaroaleman/miflora_exporter:latest
+      - run: |
+          docker push ghcr.io/alvaroaleman/miflora_exporter:latest-amd64
+          docker push ghcr.io/alvaroaleman/miflora_exporter:latest-arm64
+          docker manifest create ghcr.io/alvaroaleman/miflora_exporter:latest \
+            ghcr.io/alvaroaleman/miflora_exporter:latest-amd64 \
+            ghcr.io/alvaroaleman/miflora_exporter:latest-arm64
+          docker manifest push ghcr.io/alvaroaleman/miflora_exporter:latest
